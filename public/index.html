@@ -283,7 +283,7 @@
             document.body.appendChild(renderer.domElement);
             
             // Improved lighting for better billboard visibility
-            const ambientLight = new THREE.AmbientLight(0x404040, 1.5); //was 1.0
+            const ambientLight = new THREE.AmbientLight(0x404040, 1.0); 
             scene.add(ambientLight);
             
             const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -296,12 +296,12 @@
 
 //light 2
 
-        //    const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.8);
-        //    directionalLight2.position.set(50, 50, -50);
-        //    directionalLight2.castShadow = true;
-        //    directionalLight2.shadow.mapSize.width = 0;
-        //    directionalLight2.shadow.mapSize.height = 0;
-        //    scene.add(directionalLight2);
+            const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight2.position.set(50, 50, -50);
+            directionalLight2.castShadow = true;
+            directionalLight2.shadow.mapSize.width = 0;
+            directionalLight2.shadow.mapSize.height = 0;
+            scene.add(directionalLight2);
 
             
             // Create ground
