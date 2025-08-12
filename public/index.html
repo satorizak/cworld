@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Chat World</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            background: #000;
+        }
+
+        #ui {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        #chat-container {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            width: 400px;
+            height: 300px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 10px;
+            padding: 10px;
+            pointer-events: all;
+        }
+
+        #chat-messages {
+            height: 220px;
+            overflow-y: auto;
+            color: white;
+            font-size: 12px;
+            margin-bottom: 10px;
+            border: 1px solid #333;
+            padding: 5px;
+            background: rgba(0, 0, 0, 0.5);
+        }
+
+        #chat-input {
+            display: flex;
+            gap: 5px;
+        }
+
+        #message-input {
+            flex: 1;
+            padding: 8px;
+            border: none;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.9);
+        }
+
+        #send-button {
+            padding: 8px 15px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        #send-button:hover {
+            background: #0056b3;
+        }
+
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            pointer-events: all;
+        }
+
+        #billboard-controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            pointer-events: all;
+            width: 300px;
+        }
+
+        .billboard-upload {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+        }
+
+        .file-input {
+            margin: 5px 0;
+            padding: 5px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .upload-button {
+            padding: 8px 15px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 5px;
+        }
+
+        .upload-button:hover {
+            background: #1e7e34;
+        }
+
+        .upload-button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+
+        .system-message {
+            color: #ffeb3b;
+            font-style: italic;
+        }
+
+        .user-message {
+            color: #ffffff;
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 18px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">Loading 3D World...</div>
+    
+    <div id="ui" style="display: none;">
+        <div id="controls">
+            <h3>Controls</h3>
+            <p>WASD / Arrow Keys: Move around</p>
+            <p>Mouse: Look around</p>
+            <p>Users online: <span id="user-count">1</span></p>
+        </div>
+
+        <div id="billboard-controls">
+            <h3>Billboard Controls</h3>
+            <div class="billboard-upload">
+                <h4>Billboard 1</h4>
+                <input type="file" id="billboard1-file" class="file-input" accept="image/*">
+                <button class="upload-button" onclick="uploadImage('billboard1')">Upload to Billboard 1</button>
+            </div>
+            <div class="billboard-upload">
+                <h4>Billboard 2</h4>
+                <input type="file" id="billboard2-file" class="file-input" accept="image/*">
+                <button class="upload-button" onclick="uploadImage('billboard2')">Upload to Billboard 2</button>
+            </div>
+        </div>
+
+        <div id="chat-container">
+            <div id="chat-messages"></div>
+            <div id="chat-input">
+                <input type="text" id="message-input" placeholder="Type your message..." maxlength="200">
+                <button id="send-button">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let scene, camera, renderer, socket;
+        let avatars = {};
+        let myUserId = null;
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        let velocity = new THREE.Vector3();
+        let billboardMeshes = {};
+        
+        // Initialize socket connection
+        socket = io();
+        
+        // Initialize Three.js scene
+        function initScene() {
+            scene = new THREE.Scene();
+            scene.fog = new THREE.Fog(0x87CEEB, 50, 200);
+            
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 5, 10);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0x87CEEB);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+            
+            // Add lights
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(50, 50, 50);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            scene.add(directionalLight);
+            
+            // Create ground
+            const groundGeometry = new THREE.PlaneGeometry(100, 100);
+            const groundMaterial = new THREE.MeshLambertMaterial({ color: 0x3d8b37 });
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+            
+            // Create trees
+            createTrees();
+            
+            // Create billboards
+            createBillboards();
+            
+            // Setup controls
+            setupControls();
+            
+            // Start render loop
+            animate();
+            
+            // Hide loading screen
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('ui').style.display = 'block';
+        }
+        
+        function createTrees() {
+            for (let i = 0; i < 15; i++) {
+                const tree = new THREE.Group();
+                
+                // Trunk
+                const trunkGeometry = new THREE.CylinderGeometry(0.3, 0.5, 4);
+                const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+                const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+                trunk.position.y = 2;
+                trunk.castShadow = true;
+                tree.add(trunk);
+                
+                // Leaves
+                const leavesGeometry = new THREE.SphereGeometry(2.5);
+                const leavesMaterial = new THREE.MeshLambertMaterial({ color: 0x228B22 });
+                const leaves = new THREE.Mesh(leavesGeometry, leavesMaterial);
+                leaves.position.y = 5;
+                leaves.castShadow = true;
+                tree.add(leaves);
+                
+                // Random position (avoid center area)
+                let x, z;
+                do {
+                    x = (Math.random() - 0.5) * 80;
+                    z = (Math.random() - 0.5) * 80;
+                } while (Math.abs(x) < 15 && Math.abs(z) < 15);
+                
+                tree.position.set(x, 0, z);
+                scene.add(tree);
+            }
+        }
+        
+        function createBillboards() {
+            // Billboard 1
+            const billboard1Geometry = new THREE.PlaneGeometry(8, 6);
+            const billboard1Material = new THREE.MeshLambertMaterial({ 
+                color: 0xffffff,
+                side: THREE.DoubleSide 
+            });
+            const billboard1 = new THREE.Mesh(billboard1Geometry, billboard1Material);
+            billboard1.position.set(-15, 5, 0);
+            billboard1.castShadow = true;
+            billboardMeshes.billboard1 = billboard1;
+            scene.add(billboard1);
+            
+            // Billboard 2
+            const billboard2Geometry = new THREE.PlaneGeometry(8, 6);
+            const billboard2Material = new THREE.MeshLambertMaterial({ 
+                color: 0xffffff,
+                side: THREE.DoubleSide 
+            });
+            const billboard2 = new THREE.Mesh(billboard2Geometry, billboard2Material);
+            billboard2.position.set(15, 5, 0);
+            billboard2.castShadow = true;
+            billboardMeshes.billboard2 = billboard2;
+            scene.add(billboard2);
+            
+            // Billboard supports
+            const supportGeometry = new THREE.CylinderGeometry(0.2, 0.2, 8);
+            const supportMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+            
+            const support1 = new THREE.Mesh(supportGeometry, supportMaterial);
+            support1.position.set(-15, 2, -1);
+            scene.add(support1);
+            
+            const support2 = new THREE.Mesh(supportGeometry, supportMaterial);
+            support2.position.set(15, 2, -1);
+            scene.add(support2);
+        }
+        
+        function createAvatar(userData) {
+            const avatar = new THREE.Group();
+            
+            // Body
+            const bodyGeometry = new THREE.CapsuleGeometry ? 
+                new THREE.CapsuleGeometry(0.5, 1.5) :
+                new THREE.CylinderGeometry(0.5, 0.5, 2);
+            const bodyMaterial = new THREE.MeshLambertMaterial({ color: userData.color });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.position.y = 1.5;
+            body.castShadow = true;
+            avatar.add(body);
+            
+            // Head
+            const headGeometry = new THREE.SphereGeometry(0.4);
+            const headMaterial = new THREE.MeshLambertMaterial({ color: 0xFFDBB3 });
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            head.position.y = 2.8;
+            head.castShadow = true;
+            avatar.add(head);
+            
+            // Username label
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = 256;
+            canvas.height = 64;
+            context.fillStyle = 'rgba(0, 0, 0, 0.8)';
+            context.fillRect(0, 0, 256, 64);
+            context.fillStyle = 'white';
+            context.font = '24px Arial';
+            context.textAlign = 'center';
+            context.fillText(userData.username, 128, 40);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            const labelMaterial = new THREE.SpriteMaterial({ map: texture });
+            const label = new THREE.Sprite(labelMaterial);
+            label.position.y = 4;
+            label.scale.set(2, 0.5, 1);
+            avatar.add(label);
+            
+            avatar.position.copy(userData.position);
+            avatar.rotation.copy(userData.rotation);
+            
+            return avatar;
+        }
+        
+        function setupControls() {
+            // Keyboard controls
+            document.addEventListener('keydown', (event) => {
+                switch (event.code) {
+                    case 'KeyW':
+                    case 'ArrowUp': 
+                        moveForward = true; 
+                        break;
+                    case 'KeyS':
+                    case 'ArrowDown': 
+                        moveBackward = true; 
+                        break;
+                    case 'KeyA':
+                    case 'ArrowLeft': 
+                        moveLeft = true; 
+                        break;
+                    case 'KeyD':
+                    case 'ArrowRight': 
+                        moveRight = true; 
+                        break;
+                }
+            });
+            
+            document.addEventListener('keyup', (event) => {
+                switch (event.code) {
+                    case 'KeyW':
+                    case 'ArrowUp': 
+                        moveForward = false; 
+                        break;
+                    case 'KeyS':
+                    case 'ArrowDown': 
+                        moveBackward = false; 
+                        break;
+                    case 'KeyA':
+                    case 'ArrowLeft': 
+                        moveLeft = false; 
+                        break;
+                    case 'KeyD':
+                    case 'ArrowRight': 
+                        moveRight = false; 
+                        break;
+                }
+            });
+            
+            // Mouse controls
+            let isMouseDown = false;
+            let mouseX = 0, mouseY = 0;
+            
+            document.addEventListener('mousedown', (event) => {
+                if (event.target === renderer.domElement) {
+                    isMouseDown = true;
+                    mouseX = event.clientX;
+                    mouseY = event.clientY;
+                }
+            });
+            
+            document.addEventListener('mouseup', () => {
+                isMouseDown = false;
+            });
+            
+            document.addEventListener('mousemove', (event) => {
+                if (isMouseDown) {
+                    const deltaX = event.clientX - mouseX;
+                    const deltaY = event.clientY - mouseY;
+                    
+                    camera.rotation.y -= deltaX * 0.005;
+                    camera.rotation.x -= deltaY * 0.005;
+                    camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
+                    
+                    mouseX = event.clientX;
+                    mouseY = event.clientY;
+                }
+            });
+            
+            // Chat controls
+            document.getElementById('send-button').addEventListener('click', sendMessage);
+            document.getElementById('message-input').addEventListener('keypress', (event) => {
+                if (event.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+        }
+        
+        function updateMovement() {
+            const speed = 0.2;
+            velocity.set(0, 0, 0);
+            
+            if (moveForward) velocity.z -= speed;
+            if (moveBackward) velocity.z += speed;
+            if (moveLeft) velocity.x -= speed;
+            if (moveRight) velocity.x += speed;
+            
+            if (velocity.length() > 0) {
+                const direction = new THREE.Vector3();
+                camera.getWorldDirection(direction);
+                direction.y = 0;
+                direction.normalize();
+                
+                const right = new THREE.Vector3();
+                right.crossVectors(direction, camera.up);
+                
+                camera.position.add(direction.multiplyScalar(velocity.z));
+                camera.position.add(right.multiplyScalar(velocity.x));
+                
+                // Send position update
+                socket.emit('user-moved', {
+                    position: {
+                        x: camera.position.x,
+                        y: camera.position.y,
+                        z: camera.position.z
+                    },
+                    rotation: {
+                        x: camera.rotation.x,
+                        y: camera.rotation.y,
+                        z: camera.rotation.z
+                    }
+                });
+            }
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            updateMovement();
+            
+            renderer.render(scene, camera);
+        }
+        
+        function sendMessage() {
+            const input = document.getElementById('message-input');
+            const message = input.value.trim();
+            
+            if (message) {
+                socket.emit('chat-message', { message: message });
+                input.value = '';
+            }
+        }
+        
+        function addChatMessage(messageData) {
+            const messagesDiv = document.getElementById('chat-messages');
+            const messageElement = document.createElement('div');
+            
+            const time = new Date(messageData.timestamp).toLocaleTimeString();
+            
+            if (messageData.type === 'system') {
+                messageElement.className = 'system-message';
+                messageElement.textContent = `[${time}] ${messageData.message}`;
+            } else {
+                messageElement.className = 'user-message';
+                messageElement.innerHTML = `<strong>[${time}] ${messageData.username}:</strong> ${messageData.message}`;
+            }
+            
+            messagesDiv.appendChild(messageElement);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        function updateBillboard(billboardId, imageData) {
+            if (!billboardMeshes[billboardId]) return;
+            
+            if (imageData) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = 512;
+                    canvas.height = 384;
+                    
+                    ctx.drawImage(img, 0, 0, 512, 384);
+                    
+                    const texture = new THREE.CanvasTexture(canvas);
+                    billboardMeshes[billboardId].material.map = texture;
+                    billboardMeshes[billboardId].material.needsUpdate = true;
+                };
+                img.src = imageData;
+            } else {
+                billboardMeshes[billboardId].material.map = null;
+                billboardMeshes[billboardId].material.color.setHex(0xffffff);
+                billboardMeshes[billboardId].material.needsUpdate = true;
+            }
+        }
+        
+        function uploadImage(billboardId) {
+            const fileInput = document.getElementById(`${billboardId}-file`);
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('Please select a file first');
+                return;
+            }
+            
+            if (file.size > 2 * 1024 * 1024) {
+                alert('File size must be less than 2MB');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('image', file);
+            formData.append('billboardId', billboardId);
+            
+            const button = document.querySelector(`button[onclick="uploadImage('${billboardId}')"]`);
+            button.disabled = true;
+            button.textContent = 'Uploading...';
+            
+            fetch('/upload-billboard', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    fileInput.value = '';
+                } else {
+                    alert(data.error || 'Upload failed');
+                }
+            })
+            .catch(error => {
+                alert('Upload failed: ' + error.message);
+            })
+            .finally(() => {
+                button.disabled = false;
+                button.textContent = `Upload to ${billboardId === 'billboard1' ? 'Billboard 1' : 'Billboard 2'}`;
+            });
+        }
+        
+        // Socket event handlers
+        socket.on('connect', () => {
+            myUserId = socket.id;
+            
+            // Join the world
+            socket.emit('user-joined', {
+                username: prompt('Enter your username:') || `User_${Math.floor(Math.random()*1000)}`,
+                position: { x: 0, y: 5, z: 10 },
+                rotation: { x: 0, y: 0, z: 0 }
+            });
+        });
+        
+        socket.on('init-data', (data) => {
+            // Load chat messages
+            data.chatMessages.forEach(message => {
+                addChatMessage(message);
+            });
+            
+            // Load billboard images
+            if (data.billboardImages.billboard1) {
+                updateBillboard('billboard1', data.billboardImages.billboard1);
+            }
+            if (data.billboardImages.billboard2) {
+                updateBillboard('billboard2', data.billboardImages.billboard2);
+            }
+        });
+        
+        socket.on('user-list-updated', (users) => {
+            // Remove old avatars
+            Object.keys(avatars).forEach(userId => {
+                if (!users[userId] || userId === myUserId) {
+                    scene.remove(avatars[userId]);
+                    delete avatars[userId];
+                }
+            });
+            
+            // Add/update avatars
+            Object.values(users).forEach(userData => {
+                if (userData.id !== myUserId) {
+                    if (!avatars[userData.id]) {
+                        avatars[userData.id] = createAvatar(userData);
+                        scene.add(avatars[userData.id]);
+                    }
+                }
+            });
+            
+            document.getElementById('user-count').textContent = Object.keys(users).length;
+        });
+        
+        socket.on('user-moved', (data) => {
+            if (avatars[data.userId]) {
+                avatars[data.userId].position.copy(data.position);
+                avatars[data.userId].rotation.copy(data.rotation);
+            }
+        });
+        
+        socket.on('chat-message', addChatMessage);
+        
+        socket.on('billboard-updated', (data) => {
+            updateBillboard(data.billboardId, data.imageData);
+        });
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        // Initialize the scene when page loads
+        initScene();
+    </script>
+</body>
+</html>
