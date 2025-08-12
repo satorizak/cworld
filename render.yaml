@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: multiplayer-3d-chat-world
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        fromService:
+          type: web
+          name: multiplayer-3d-chat-world
+          property: port
