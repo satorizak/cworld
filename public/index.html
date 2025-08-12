@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Chat World</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌍</text></svg>">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            background: #000;
+        }
+
+        #ui {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        #chat-container {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            width: 400px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 10px;
+            padding: 10px;
+            pointer-events: all;
+            transition: height 0.3s ease, opacity 0.3s ease;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #chat-toggle {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 5px 10px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+            pointer-events: all;
+            z-index: 1001;
+        }
+
+        #chat-toggle:hover {
+            background: #0056b3;
+        }
+
+        #chat-messages {
+            flex-grow: 1;
+            height: 220px;
+            overflow-y: auto;
+            color: white;
+            font-size: 12px;
+            margin-bottom: 10px;
+            border: 1px solid #333;
+            padding: 5px;
+            background: rgba(0, 0, 0, 0.5);
+            transition: height 0.3s ease, opacity 0.3s ease;
+        }
+
+        #chat-input {
+            display: flex;
+            gap: 5px;
+            transition: opacity 0.3s ease;
+        }
+
+        #message-input {
+            flex: 1;
+            padding: 8px;
+            border: none;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.9);
+        }
+
+        #send-button {
+            padding: 8px 15px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        #send-button:hover {
+            background: #0056b3;
+        }
+        
+        #chat-container.collapsed #chat-messages,
+        #chat-container.collapsed #chat-input {
+            height: 0;
+            padding: 0;
+            margin: 0;
+            opacity: 0;
+            overflow: hidden;
+        }
+
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 8px;
+            pointer-events: all;
+            font-size: 12px;
+        }
+
+        #controls h3 {
+            margin: 0 0 8px 0;
+            font-size: 14px;
+        }
+
+        #controls p {
+            margin: 3px 0;
+        }
+
+        #upload-modal, #avatar-modal {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            pointer-events: all;
+            z-index: 2000;
+            min-width: 400px;
+            text-align: center;
+        }
+
+        #upload-modal h3, #avatar-modal h3 {
+            margin-top: 0;
+            color: #fff;
+        }
+
+        .file-input {
+            margin: 15px 0;
+            padding: 10px;
+            width: 100%;
+            box-sizing: border-box;
+            border: 2px solid #444;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+
+        .modal-buttons, #avatar-choices {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        .upload-button, .cancel-button, .avatar-choice-btn {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .upload-button {
+            background: #28a745;
+            color: white;
+        }
+
+        .upload-button:hover {
+            background: #1e7e34;
+        }
+
+        .upload-button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+
+        .cancel-button {
+            background: #dc3545;
+            color: white;
+        }
+
+        .cancel-button:hover {
+            background: #c82333;
+        }
+
+        #avatar-modal .avatar-choice-btn {
+            background: #6c757d;
+            color: white;
+        }
+
+        #avatar-modal .avatar-choice-btn.selected {
+            background: #007bff;
+            border: 2px solid white;
+        }
+
+        #avatar-modal .avatar-choice-btn:hover {
+            background: #5a6268;
+        }
+
+        .system-message {
+            color: #ffeb3b;
+            font-style: italic;
+        }
+
+        .user-message {
+            color: #ffffff;
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 18px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">Loading 3D World...</div>
+    
+    <div id="ui" style="display: none;">
+        <div id="controls">
+            <h3>Controls</h3>
+            <p>WASD/Arrows: Move</p>
+            <p>Mouse: Look around</p>
+            <p>Click billboards to upload</p>
+            <p>Users online: <span id="user-count">1</span></p>
+        </div>
+
+        <div id="avatar-modal">
+            <h3>Welcome to the World!</h3>
+            <p>Choose your avatar and enter a username.</p>
+            <div id="avatar-choices">
+                <button class="avatar-choice-btn" data-avatar="default">Default</button>
+                <button class="avatar-choice-btn" data-avatar="gomez">Gomez</button>
+                <button class="avatar-choice-btn" data-avatar="astronaut">Astronaut</button>
+                <button class="avatar-choice-btn" data-avatar="shorty">Shorty</button>
+                <button class="avatar-choice-btn" data-avatar="king">King</button>
+            </div>
+            <input type="text" id="username-input" placeholder="Enter your username..." style="margin-top: 15px;">
+            <button id="join-button" style="margin-top: 15px; padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px;">Join</button>
+        </div>
+
+        <div id="upload-modal">
+            <h3 id="modal-title">Upload Image to Billboard</h3>
+            <p>Select an image (max 2MB):</p>
+            <input type="file" id="modal-file-input" class="file-input" accept="image/*">
+            <div class="modal-buttons">
+                <button class="upload-button" id="modal-upload-btn">Upload</button>
+                <button class="cancel-button" id="modal-cancel-btn">Cancel</button>
+            </div>
+        </div>
+
+        <div id="chat-container">
+            <button id="chat-toggle">Hide</button>
+            <div id="chat-messages"></div>
+            <div id="chat-input">
+                <input type="text" id="message-input" placeholder="Type your message..." maxlength="200">
+                <button id="send-button">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let scene, camera, renderer, socket;
+        let avatars = {};
+        let myAvatar = null;
+        let myUserId = null;
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        let velocity = new THREE.Vector3();
+        let billboardMeshes = {};
+        let raycaster = new THREE.Raycaster();
+        let mouse = new THREE.Vector2();
+        let currentBillboardId = null;
+        let isTyping = false;
+        let avatarScale = 1.0; // Easily adjustable avatar scale
+        const gltfLoader = new THREE.GLTFLoader();
+        const textureLoader = new THREE.TextureLoader();
+        
+        // Avatar and object configuration
+        const avatarModels = {
+            'default': null, // This will be the primitive avatar
+            'gomez': 'avatars/gomez.glb',
+            'astronaut': 'avatars/astronaut.glb',
+            'shorty': 'avatars/shorty.glb',
+            'king': 'avatars/king.glb'
+        };
+        const objectModels = {
+            'pond': 'objects/pond.glb',
+            'pavilion': 'objects/pavilion.glb'
+        };
+
+        // Initialize socket connection
+        socket = io();
+        
+        // Initialize Three.js scene
+        function initScene() {
+            scene = new THREE.Scene();
+            
+            // Set skybox or fallback color
+            const skyboxUrls = [
+                'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/skyboxsun25deg/px.jpg',
+                'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/skyboxsun25deg/nx.jpg',
+                'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/skyboxsun25deg/py.jpg',
+                'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/skyboxsun25deg/ny.jpg',
+                'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/skyboxsun25deg/pz.jpg',
+                'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/skyboxsun25deg/nz.jpg'
+            ];
+            const cubeTextureLoader = new THREE.CubeTextureLoader();
+            cubeTextureLoader.load(skyboxUrls, (texture) => {
+                scene.background = texture;
+            }, undefined, (err) => {
+                console.error('Failed to load skybox, using fallback color', err);
+                scene.background = new THREE.Color(0x87CEEB); // Your current sky color
+            });
+            
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 7, 10);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+            
+            // Improved lighting for better billboard visibility
+            const ambientLight = new THREE.AmbientLight(0x404040, 1.8); 
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(50, 50, 50);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            scene.add(directionalLight);
+
+
+//light 2
+
+const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight2.position.set(50, 50, -50);
+            directionalLight2.castShadow = false;
+            directionalLight2.shadow.mapSize.width = 2048;
+            directionalLight2.shadow.mapSize.height = 2048;
+            scene.add(directionalLight2);
+
+            
+            // Create ground
+            createGround();
+            
+            // Create trees
+            createTrees();
+            
+            // Create billboards
+            createBillboards();
+            
+            // Setup controls
+            setupControls();
+            
+            // Start render loop
+            animate();
+            
+            // Hide loading screen
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('ui').style.display = 'block';
+        }
+
+        // A helper function to create a basic avatar if a .glb fails to load
+        function createPrimitiveAvatar(color = 0x4CAF50) {
+            const avatar = new THREE.Group();
+            
+            const bodyGeometry = new THREE.CylinderGeometry(0.5, 0.5, 2);
+            const bodyMaterial = new THREE.MeshLambertMaterial({ color: color });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.position.y = 1;
+            body.castShadow = true;
+            avatar.add(body);
+            
+            const headGeometry = new THREE.SphereGeometry(0.4);
+            const headMaterial = new THREE.MeshLambertMaterial({ color: 0xFFDBB3 });
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            head.position.y = 2.4;
+            head.castShadow = true;
+            avatar.add(head);
+            
+            return avatar;
+        }
+
+        // The main avatar loading function with a fallback
+        function loadGLBModel(path, position = {x: 0, y: 0, z: 0}, callback, fallbackColor = 0x4CAF50) {
+            if (path) {
+                gltfLoader.load(path, (gltf) => {
+                    const model = gltf.scene;
+                    model.position.set(position.x, position.y, position.z);
+                    model.traverse((node) => {
+                        if (node.isMesh) {
+                            node.castShadow = true;
+                            node.receiveShadow = true;
+                        }
+                    });
+                    model.scale.set(avatarScale, avatarScale, avatarScale);
+                    callback(model);
+                }, undefined, (err) => {
+                    console.error('Failed to load GLB model, using fallback', err);
+                    const fallbackAvatar = createPrimitiveAvatar(fallbackColor);
+                    fallbackAvatar.position.set(position.x, position.y, position.z);
+                    callback(fallbackAvatar);
+                });
+            } else {
+                const fallbackAvatar = createPrimitiveAvatar(fallbackColor);
+                fallbackAvatar.position.set(position.x, position.y, position.z);
+                callback(fallbackAvatar);
+            }
+        }
+        
+        function createGround() {
+            const groundGeometry = new THREE.PlaneGeometry(100, 100);
+            
+            // Load ground texture with fallback
+            const groundTexturePath = 'textures/grass_texture.jpg'; // Replace with your texture file path
+            
+            textureLoader.load(groundTexturePath, (texture) => {
+                const groundMaterial = new THREE.MeshLambertMaterial({ map: texture, side: THREE.DoubleSide });
+                const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+                ground.rotation.x = -Math.PI / 2;
+                ground.receiveShadow = true;
+                scene.add(ground);
+            }, undefined, (err) => {
+                console.warn('Failed to load ground texture, using fallback color', err);
+                const groundMaterial = new THREE.MeshLambertMaterial({ color: 0x3d8b37 });
+                const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+                ground.rotation.x = -Math.PI / 2;
+                ground.receiveShadow = true;
+                scene.add(ground);
+            });
+        }
+
+        function createTrees() {
+            // ... (your existing createTrees function) ...
+        }
+        
+        function createBillboards() {
+            // ... (your existing createBillboards function) ...
+        }
+
+        function createMyAvatar(avatarModelPath) {
+            loadGLBModel(avatarModelPath, { x: 0, y: 0, z: 0 }, (avatar) => {
+                myAvatar = avatar;
+                scene.add(myAvatar);
+                updateCameraPosition();
+            }, 0x4CAF50);
+        }
+        
+        function createAvatar(userData) {
+            // New logic to create avatar based on userData.avatarModel
+            const avatarColor = userData.color;
+            const avatarModelPath = avatarModels[userData.avatar];
+
+            loadGLBModel(avatarModelPath, userData.position, (avatar) => {
+                avatar.rotation.copy(userData.rotation);
+                
+                // Add username label
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                canvas.width = 256;
+                canvas.height = 64;
+                context.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                context.fillRect(0, 0, 256, 64);
+                context.fillStyle = 'white';
+                context.font = '24px Arial';
+                context.textAlign = 'center';
+                context.fillText(userData.username, 128, 40);
+                
+                const texture = new THREE.CanvasTexture(canvas);
+                const labelMaterial = new THREE.SpriteMaterial({ map: texture });
+                const label = new THREE.Sprite(labelMaterial);
+                label.position.y = 3.5;
+                label.scale.set(2, 0.5, 1);
+                avatar.add(label);
+                
+                avatars[userData.id] = avatar;
+                scene.add(avatars[userData.id]);
+            }, avatarColor);
+        }
+
+        function createObject(modelPath, position) {
+            loadGLBModel(modelPath, position, (object) => {
+                scene.add(object);
+                console.log(`Loaded object: ${modelPath}`);
+            });
+        }
+        
+        function setupControls() {
+            // ... (your existing setupControls function) ...
+            
+            // New event listeners for the avatar modal
+            document.querySelectorAll('.avatar-choice-btn').forEach(button => {
+                button.addEventListener('click', () => {
+                    document.querySelectorAll('.avatar-choice-btn').forEach(btn => btn.classList.remove('selected'));
+                    button.classList.add('selected');
+                });
+            });
+            
+            document.getElementById('join-button').addEventListener('click', handleJoin);
+        }
+
+        function handleJoin() {
+            const username = document.getElementById('username-input').value.trim();
+            const selectedAvatar = document.querySelector('.avatar-choice-btn.selected');
+            
+            if (!username) {
+                alert('Please enter a username.');
+                return;
+            }
+
+            if (!selectedAvatar) {
+                alert('Please select an avatar.');
+                return;
+            }
+
+            const avatarChoice = selectedAvatar.dataset.avatar;
+            const avatarModelPath = avatarModels[avatarChoice];
+            
+            document.getElementById('avatar-modal').style.display = 'none';
+            
+            // Emit new event with avatar choice
+            socket.emit('user-joined-with-avatar', {
+                username: username,
+                avatar: avatarChoice,
+                avatarModelPath: avatarModelPath,
+                position: { x: 0, y: 0, z: 0 },
+                rotation: { x: 0, y: 0, z: 0 }
+            });
+        }
+        
+        function updateMovement() {
+            // ... (your existing updateMovement function) ...
+        }
+        
+        function updateCameraPosition() {
+            // ... (your existing updateCameraPosition function) ...
+        }
+        
+        function animate() {
+            // ... (your existing animate function) ...
+        }
+        
+        function toggleChat() {
+            // ... (your existing toggleChat function) ...
+        }
+        
+        function sendMessage() {
+            // ... (your existing sendMessage function) ...
+        }
+        
+        function addChatMessage(messageData) {
+            // ... (your existing addChatMessage function) ...
+        }
+        
+        function updateBillboard(billboardId, imageData) {
+            // ... (your existing updateBillboard function) ...
+        }
+        
+        function handleBillboardClick(event) {
+            // ... (your existing handleBillboardClick function) ...
+        }
+        
+        function openUploadModal(billboardId) {
+            // ... (your existing openUploadModal function) ...
+        }
+        
+        function closeUploadModal() {
+            // ... (your existing closeUploadModal function) ...
+        }
+        
+        function handleModalUpload() {
+            // ... (your existing handleModalUpload function) ...
+        }
+        
+        // Socket event handlers
+        socket.on('connect', () => {
+            myUserId = socket.id;
+            document.getElementById('avatar-modal').style.display = 'block';
+        });
+
+        socket.on('join-accepted', (data) => {
+            // Now that the server has accepted, we can create our avatar
+            createMyAvatar(avatarModels[data.avatar]);
+            
+            // And now we can handle the rest of the init data
+            data.initData.chatMessages.forEach(message => {
+                addChatMessage(message);
+            });
+            
+            if (data.initData.billboardImages.billboard1) {
+                updateBillboard('billboard1', data.initData.billboardImages.billboard1);
+            }
+            if (data.initData.billboardImages.billboard2) {
+                updateBillboard('billboard2', data.initData.billboardImages.billboard2);
+            }
+        });
+        
+        socket.on('user-list-updated', (users) => {
+            // ... (existing user list logic) ...
+        });
+        
+        socket.on('user-moved', (data) => {
+            // ... (existing user moved logic) ...
+        });
+        
+        socket.on('chat-message', addChatMessage);
+        
+        socket.on('billboard-updated', (data) => {
+            // ... (existing billboard updated logic) ...
+        });
+        
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        initScene();
+    </script>
+</body>
+</html>
