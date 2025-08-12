@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Chat World</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌍</text></svg>">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <style>
+        /* General body styling */
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            background: #000;
+        }
+
+        /* UI container for all overlay elements */
+        #ui {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1000;
+        }
+        
+        /* Chat box styling and toggle transition */
+        #chat-container {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            width: 20%; /* Changed to 20% of screen width */
+            height: 300px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 10px;
+            padding: 10px;
+            pointer-events: all;
+            /* Added transition for smooth hide/show effect */
+            transition: transform 0.3s ease-in-out; 
+            transform: translateY(0);
+        }
+        
+        /* Class to hide the chat container */
+        #chat-container.hidden {
+            transform: translateY(320px); /* Adjust to hide it completely */
+        }
+
+        #chat-messages {
+            height: 220px;
+            overflow-y: auto;
+            color: white;
+            font-size: 12px;
+            margin-bottom: 10px;
+            border: 1px solid #333;
+            padding: 5px;
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 5px;
+        }
+
+        #chat-input {
+            display: flex;
+            gap: 5px;
+        }
+
+        #message-input {
+            flex: 1;
+            padding: 8px;
+            border: none;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.9);
+            color: #333;
+        }
+        
+        #send-button {
+            padding: 8px 15px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            transition: background 0.2s ease-in-out;
+        }
+
+        #send-button:hover {
+            background: #0056b3;
+        }
+        
+        #chat-toggle {
+            position: absolute;
+            top: -30px;
+            right: 0px;
+            padding: 5px 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: none;
+            border-radius: 5px 5px 0 0;
+            cursor: pointer;
+        }
+
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 5px 10px; /* Made the padding smaller */
+            border-radius: 10px;
+            pointer-events: all;
+            font-size: 10px; /* Reduced font size for a smaller box */
+        }
+
+        #controls h3 {
+            display: none; /* Hid the heading for a more compact look */
+        }
+
+        #upload-modal {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            pointer-events: all;
+            z-index: 2000;
+            min-width: 400px;
+            text-align: center;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.5);
+        }
+
+        #upload-modal h3 {
+            margin-top: 0;
+            color: #fff;
+        }
+
+        .file-input {
+            margin: 15px 0;
+            padding: 10px;
+            width: 100%;
+            box-sizing: border-box;
+            border: 2px solid #444;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        .upload-button, .cancel-button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            transition: background 0.2s ease-in-out;
+        }
+
+        .upload-button {
+            background: #28a745;
+            color: white;
+        }
+
+        .upload-button:hover {
+            background: #1e7e34;
+        }
+
+        .upload-button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+
+        .cancel-button {
+            background: #dc3545;
+            color: white;
+        }
+
+        .cancel-button:hover {
+            background: #c82333;
+        }
+
+        .system-message {
+            color: #ffeb3b;
+            font-style: italic;
+        }
+
+        .user-message {
+            color: #ffffff;
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 18px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">Loading 3D World...</div>
+    
+    <div id="ui" style="display: none;">
+        <div id="controls">
+            <p>WASD / Arrow Keys: Move around</p>
+            <p>Mouse: Look around</p>
+            <p>Click billboards to upload images</p>
+            <p>Users online: <span id="user-count">1</span></p>
+        </div>
+
+        <div id="upload-modal">
+            <h3 id="modal-title">Upload Image to Billboard</h3>
+            <p>Select an image (max 2MB):</p>
+            <input type="file" id="modal-file-input" class="file-input" accept="image/*">
+            <div class="modal-buttons">
+                <button class="upload-button" id="modal-upload-btn">Upload</button>
+                <button class="cancel-button" id="modal-cancel-btn">Cancel</button>
+            </div>
+        </div>
+
+        <div id="chat-container">
+            <button id="chat-toggle">Hide Chat</button>
+            <div id="chat-messages"></div>
+            <div id="chat-input">
+                <input type="text" id="message-input" placeholder="Type your message..." maxlength="200">
+                <button id="send-button">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let scene, camera, renderer, socket;
+        let avatars = {};
+        let myAvatar = null;
+        let myUserId = null;
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        let isTyping = false;
+        let velocity = new THREE.Vector3();
+        let billboardMeshes = {};
+        let raycaster = new THREE.Raycaster();
+        let mouse = new THREE.Vector2();
+        let currentBillboardId = null;
+        
+        // Third-person camera settings
+        let cameraOffset = new THREE.Vector3(0, 2, 5);
+        let cameraTarget = new THREE.Vector3();
+        let mouseX = 0, mouseY = 0;
+        let isMouseDown = false;
+
+        const clock = new THREE.Clock();
+
+        // Initialize socket connection
+        socket = io();
+        
+        // Initialize Three.js scene
+        function initScene() {
+            // Set up scene, camera, and renderer
+            scene = new THREE.Scene();
+            scene.fog = new THREE.Fog(0x87CEEB, 50, 200);
+            
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setClearColor(0x87CEEB);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.body.appendChild(renderer.domElement);
+            
+            // Add lights
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(50, 50, 50);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            scene.add(directionalLight);
+            
+            // Create ground
+            const groundGeometry = new THREE.PlaneGeometry(100, 100);
+            const groundMaterial = new THREE.MeshLambertMaterial({ color: 0x3d8b37 });
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+            
+            // Create my own avatar
+            createMyAvatar();
+
+            // Create trees and billboards
+            createTrees();
+            createBillboards();
+
+            // Setup controls and start the render loop
+            setupControls();
+            animate();
+
+            // Hide loading screen and show UI
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('ui').style.display = 'block';
+        }
+
+        // Creates the main user avatar
+        function createMyAvatar() {
+            const bodyGeometry = new THREE.BoxGeometry(0.8, 1.8, 0.8);
+            const bodyMaterial = new THREE.MeshLambertMaterial({ color: 0x007bff });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.position.y = 0.9;
+            body.castShadow = true;
+
+            const headGeometry = new THREE.SphereGeometry(0.5, 32, 32);
+            const headMaterial = new THREE.MeshLambertMaterial({ color: 0xffd700 });
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            head.position.y = 2.1;
+            head.castShadow = true;
+
+            myAvatar = new THREE.Group();
+            myAvatar.add(body);
+            myAvatar.add(head);
+            myAvatar.position.set(0, 0, 0);
+            scene.add(myAvatar);
+
+            camera.position.set(myAvatar.position.x, myAvatar.position.y + cameraOffset.y, myAvatar.position.z + cameraOffset.z);
+            camera.lookAt(myAvatar.position);
+        }
+
+        // Creates a simple avatar for other users
+        function createAvatar(userId) {
+            const avatarGroup = new THREE.Group();
+            
+            const bodyGeometry = new THREE.BoxGeometry(0.8, 1.8, 0.8);
+            const bodyMaterial = new THREE.MeshLambertMaterial({ color: 0xff6347 }); // A different color for other players
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.position.y = 0.9;
+            body.castShadow = true;
+            avatarGroup.add(body);
+
+            const headGeometry = new THREE.SphereGeometry(0.5, 32, 32);
+            const headMaterial = new THREE.MeshLambertMaterial({ color: 0xffd700 });
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            head.position.y = 2.1;
+            head.castShadow = true;
+            avatarGroup.add(head);
+            
+            return avatarGroup;
+        }
+
+        function createTrees() {
+            // ... (The original tree creation function from the unfinished file)
+            for (let i = 0; i < 15; i++) {
+                const tree = new THREE.Group();
+                const treeType = Math.random() > 0.5 ? 'oak' : 'pine';
+                if (treeType === 'oak') {
+                    const trunkGeometry = new THREE.CylinderGeometry(0.4, 0.6, 4);
+                    const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+                    const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+                    trunk.position.y = 2;
+                    trunk.castShadow = true;
+                    tree.add(trunk);
+                    const leafColors = [0x228B22, 0x32CD32, 0x006400];
+                    const leafColor = leafColors[Math.floor(Math.random() * leafColors.length)];
+                    const leavesGeometry1 = new THREE.SphereGeometry(2.5);
+                    const leavesMaterial1 = new THREE.MeshLambertMaterial({ color: leafColor });
+                    const leaves1 = new THREE.Mesh(leavesGeometry1, leavesMaterial1);
+                    leaves1.position.y = 5.5;
+                    leaves1.castShadow = true;
+                    tree.add(leaves1);
+                    const leavesGeometry2 = new THREE.SphereGeometry(1.8);
+                    const leavesMaterial2 = new THREE.MeshLambertMaterial({ color: leafColor });
+                    const leaves2 = new THREE.Mesh(leavesGeometry2, leavesMaterial2);
+                    leaves2.position.set(-1.2, 4.8, 0.8);
+                    leaves2.castShadow = true;
+                    tree.add(leaves2);
+                    const leavesGeometry3 = new THREE.SphereGeometry(1.5);
+                    const leavesMaterial3 = new THREE.MeshLambertMaterial({ color: leafColor });
+                    const leaves3 = new THREE.Mesh(leavesGeometry3, leavesMaterial3);
+                    leaves3.position.set(1, 4.8, -1);
+                    leaves3.castShadow = true;
+                    tree.add(leaves3);
+                } else { // Pine tree - cone leaves, slender trunk
+                    const trunkGeometry = new THREE.CylinderGeometry(0.2, 0.3, 3.5);
+                    const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x5C4033 });
+                    const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+                    trunk.position.y = 1.75;
+                    trunk.castShadow = true;
+                    tree.add(trunk);
+                    const leavesGeometry = new THREE.ConeGeometry(2, 5, 8);
+                    const leavesMaterial = new THREE.MeshLambertMaterial({ color: 0x008000 });
+                    const leaves = new THREE.Mesh(leavesGeometry, leavesMaterial);
+                    leaves.position.y = 4.5;
+                    leaves.castShadow = true;
+                    tree.add(leaves);
+                }
+                tree.position.x = Math.random() * 80 - 40;
+                tree.position.z = Math.random() * 80 - 40;
+                scene.add(tree);
+            }
+        }
+
+        // Creates two large billboards for image uploads
+        function createBillboards() {
+            // Billboard 1
+            const billboard1 = createBillboardMesh('billboard1', -15, 4.5, -20, 0); /* Lowered the y position to 4.5 */
+            scene.add(billboard1);
+
+            // Billboard 2
+            const billboard2 = createBillboardMesh('billboard2', 15, 4.5, -20, 0); /* Lowered the y position to 4.5 */
+            scene.add(billboard2);
+        }
+
+        // Helper function to create a single billboard mesh
+        function createBillboardMesh(id, x, y, z, rotationY) {
+            const group = new THREE.Group();
+            group.name = id;
+
+            // Main billboard geometry
+            const billboardGeometry = new THREE.PlaneGeometry(12, 6);
+            const billboardMaterial = new THREE.MeshLambertMaterial({ color: 0xcccccc, side: THREE.DoubleSide });
+            const billboardMesh = new THREE.Mesh(billboardGeometry, billboardMaterial);
+            billboardMesh.position.y = 3;
+            billboardMesh.castShadow = true;
+            billboardMesh.receiveShadow = false; // Prevents the back from being too dark
+
+            group.add(billboardMesh);
+            
+            group.position.set(x, y, z);
+            group.rotation.y = rotationY;
+
+            billboardMeshes[id] = group;
+            return group;
+        }
+
+        // Function to update billboard image
+        function updateBillboard(billboardId, imageData) {
+            const billboard = billboardMeshes[billboardId];
+            if (billboard) {
+                const texture = new THREE.TextureLoader().load(imageData, () => {
+                    const billboardMesh = billboard.children[0];
+                    billboardMesh.material.map = texture;
+                    billboardMesh.material.needsUpdate = true;
+                    billboardMesh.material.color.setHex(0xffffff); // Ensure color is white for the texture
+                    console.log(`Billboard ${billboardId} updated with new image.`);
+                });
+            } else {
+                console.error(`Billboard with ID ${billboardId} not found.`);
+            }
+        }
+        
+        // Adds a message to the chat box
+        function addChatMessage(data) {
+            const chatMessages = document.getElementById('chat-messages');
+            const messageElement = document.createElement('div');
+            messageElement.classList.add('message');
+            
+            const username = data.username || 'System';
+            const text = data.text || '';
+            
+            if (username === 'System') {
+                messageElement.classList.add('system-message');
+                messageElement.innerHTML = `<em>${text}</em>`;
+            } else {
+                messageElement.classList.add('user-message');
+                messageElement.innerHTML = `<strong>${username}:</strong> ${text}`;
+            }
+            
+            chatMessages.appendChild(messageElement);
+            chatMessages.scrollTop = chatMessages.scrollHeight; // Auto-scroll to the bottom
+        }
+
+        // Sets up event listeners for user input
+        function setupControls() {
+            // Keyboard events for movement
+            document.addEventListener('keydown', onKeyDown, false);
+            document.addEventListener('keyup', onKeyUp, false);
+            
+            // Mouse events for camera rotation
+            document.addEventListener('mousedown', onMouseDown, false);
+            document.addEventListener('mouseup', onMouseUp, false);
+            document.addEventListener('mousemove', onMouseMove, false);
+            
+            // Billboard click event
+            document.addEventListener('click', onDocumentClick, false);
+
+            // Chat input focus events to prevent movement while typing
+            const messageInput = document.getElementById('message-input');
+            messageInput.addEventListener('focus', () => {
+                isTyping = true;
+            });
+            messageInput.addEventListener('blur', () => {
+                isTyping = false;
+            });
+
+            // Chat send button click
+            document.getElementById('send-button').addEventListener('click', sendMessage);
+            
+            // Enter key to send message
+            messageInput.addEventListener('keypress', (event) => {
+                if (event.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+
+            // Chat toggle button
+            document.getElementById('chat-toggle').addEventListener('click', () => {
+                const chatContainer = document.getElementById('chat-container');
+                chatContainer.classList.toggle('hidden');
+            });
+            
+            // Upload modal buttons
+            document.getElementById('modal-upload-btn').addEventListener('click', handleImageUpload);
+            document.getElementById('modal-cancel-btn').addEventListener('click', () => {
+                document.getElementById('upload-modal').style.display = 'none';
+            });
+            
+            document.getElementById('modal-file-input').addEventListener('change', (event) => {
+                const file = event.target.files[0];
+                const uploadBtn = document.getElementById('modal-upload-btn');
+                if (file && file.size > 2 * 1024 * 1024) { // 2MB limit
+                    alert('File size exceeds 2MB limit. Please choose a smaller image.');
+                    uploadBtn.disabled = true;
+                } else {
+                    uploadBtn.disabled = false;
+                }
+            });
+        }
+        
+        function onKeyDown(event) {
+            if (isTyping) return;
+            switch (event.code) {
+                case 'ArrowUp':
+                case 'KeyW':
+                    moveForward = true;
+                    break;
+                case 'ArrowLeft':
+                case 'KeyA':
+                    moveLeft = true;
+                    break;
+                case 'ArrowDown':
+                case 'KeyS':
+                    moveBackward = true;
+                    break;
+                case 'ArrowRight':
+                case 'KeyD':
+                    moveRight = true;
+                    break;
+            }
+        }
+        
+        function onKeyUp(event) {
+            if (isTyping) return;
+            switch (event.code) {
+                case 'ArrowUp':
+                case 'KeyW':
+                    moveForward = false;
+                    break;
+                case 'ArrowLeft':
+                case 'KeyA':
+                    moveLeft = false;
+                    break;
+                case 'ArrowDown':
+                case 'KeyS':
+                    moveBackward = false;
+                    break;
+                case 'ArrowRight':
+                case 'KeyD':
+                    moveRight = false;
+                    break;
+            }
+        }
+
+        function onMouseDown(event) {
+            isMouseDown = true;
+        }
+
+        function onMouseUp(event) {
+            isMouseDown = false;
+        }
+
+        function onMouseMove(event) {
+            if (isMouseDown) {
+                const movementX = event.movementX || event.mozMovementX || event.webkitMovementX || 0;
+                const movementY = event.movementY || event.mozMovementY || event.webkitMovementY || 0;
+                
+                mouseX -= movementX * 0.002;
+                mouseY -= movementY * 0.002;
+
+                // Clamp vertical rotation
+                mouseY = Math.max(-Math.PI / 4, Math.min(Math.PI / 4, mouseY));
+            }
+        }
+
+        function onDocumentClick(event) {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(Object.values(billboardMeshes), true);
+            
+            if (intersects.length > 0) {
+                const clickedBillboard = intersects[0].object.parent;
+                currentBillboardId = clickedBillboard.name;
+                document.getElementById('upload-modal').style.display = 'block';
+            }
+        }
+
+        function sendMessage() {
+            const messageInput = document.getElementById('message-input');
+            const message = messageInput.value.trim();
+            if (message) {
+                socket.emit('chat-message', { text: message });
+                messageInput.value = '';
+            }
+        }
+        
+        function handleImageUpload() {
+            const fileInput = document.getElementById('modal-file-input');
+            const file = fileInput.files[0];
+            
+            if (file && currentBillboardId) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const imageData = event.target.result;
+                    socket.emit('billboard-updated', { billboardId: currentBillboardId, imageData: imageData });
+                    document.getElementById('upload-modal').style.display = 'none';
+                    fileInput.value = '';
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        // The main animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            
+            // Reset velocity
+            velocity.set(0, 0, 0);
+
+            // Get the camera's forward and right vectors, ignoring the Y-axis
+            const cameraDirection = new THREE.Vector3();
+            camera.getWorldDirection(cameraDirection);
+            cameraDirection.y = 0;
+            cameraDirection.normalize();
+
+            const cameraRight = new THREE.Vector3();
+            cameraRight.crossVectors(new THREE.Vector3(0, 1, 0), cameraDirection);
+
+            // Apply movement based on key presses and camera direction
+            if (myAvatar) {
+                if (moveForward) velocity.add(cameraDirection.clone().multiplyScalar(5));
+                if (moveBackward) velocity.add(cameraDirection.clone().multiplyScalar(-5));
+                if (moveLeft) velocity.add(cameraRight.clone().multiplyScalar(-5));
+                if (moveRight) velocity.add(cameraRight.clone().multiplyScalar(5));
+                
+                myAvatar.position.addScaledVector(velocity, delta);
+
+                // Update myAvatar's rotation to match camera's Y rotation
+                myAvatar.rotation.y = Math.atan2(cameraDirection.x, cameraDirection.z);
+                
+                // Update camera position and look at myAvatar
+                const newCameraPosition = new THREE.Vector3();
+                newCameraPosition.copy(myAvatar.position);
+                newCameraPosition.y += cameraOffset.y;
+
+                const rotatedCameraOffset = cameraOffset.clone();
+                rotatedCameraOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), mouseX);
+                rotatedCameraOffset.y = cameraOffset.y + Math.sin(mouseY) * 5;
+                
+                camera.position.copy(myAvatar.position).add(rotatedCameraOffset);
+
+                camera.lookAt(myAvatar.position.x, myAvatar.position.y + 1, myAvatar.position.z);
+            }
+            
+            // Broadcast my avatar's position to other users
+            if (myAvatar && socket.connected) {
+                socket.emit('user-moved', {
+                    position: myAvatar.position,
+                    rotation: myAvatar.rotation
+                });
+            }
+            
+            renderer.render(scene, camera);
+        }
+
+        // Socket.IO event handlers
+        socket.on('connect', () => {
+            console.log('Connected to server.');
+        });
+        
+        socket.on('user-connected', (data) => {
+            addChatMessage({ text: `${data.username} has joined the world.` });
+        });
+        
+        socket.on('user-disconnected', (data) => {
+            if (avatars[data.userId]) {
+                scene.remove(avatars[data.userId]);
+                delete avatars[data.userId];
+                addChatMessage({ text: `${data.username} has left the world.` });
+            }
+        });
+        
+        socket.on('initial-state', (data) => {
+            myUserId = data.myUserId;
+            const users = data.users;
+            
+            // Clear existing avatars and re-add them based on initial state
+            Object.keys(avatars).forEach(id => {
+                scene.remove(avatars[id]);
+            });
+            avatars = {};
+
+            for (const userId in users) {
+                if (userId === myUserId) {
+                    // My own avatar is already created and controlled locally
+                    avatars[userId] = myAvatar; 
+                    continue;
+                }
+
+                const userData = users[userId];
+                // Create an avatar for other users
+                const otherAvatar = createAvatar(userId);
+                otherAvatar.position.copy(userData.position);
+                otherAvatar.rotation.copy(userData.rotation);
+                avatars[userId] = otherAvatar;
+                scene.add(avatars[userId]);
+                console.log(`Added avatar for user: ${userData.username} at position:`, userData.position);
+            }
+            console.log(`Total avatars in scene: ${Object.keys(avatars).length}`);
+            document.getElementById('user-count').textContent = Object.keys(users).length;
+        });
+        
+        socket.on('user-moved', (data) => {
+            if (avatars[data.userId] && data.userId !== myUserId) {
+                avatars[data.userId].position.copy(data.position);
+                avatars[data.userId].rotation.copy(data.rotation);
+            }
+        });
+        
+        socket.on('chat-message', addChatMessage);
+        
+        socket.on('billboard-updated', (data) => {
+            updateBillboard(data.billboardId, data.imageData);
+        });
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        // Initialize the scene when page loads
+        window.onload = initScene;
+    </script>
+</body>
+</html>
+
