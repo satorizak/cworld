@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: multiplayer-3d-chat-world
+    name: cworld
     env: node
     buildCommand: npm install
     startCommand: npm start
@@ -12,5 +12,5 @@ services:
       - key: PORT
         fromService:
           type: web
-          name: multiplayer-3d-chat-world
+          name: cworld
           property: port
